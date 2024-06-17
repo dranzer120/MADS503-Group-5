@@ -1,0 +1,62 @@
+---
+title: "Assignment 3"
+author: "Jason Tong"
+date: "2024-03-19"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+disease_df <- read.csv("Disease_dataset.csv")
+```
+
+
+```{r}
+# Check for missing values in a data frame
+missing_values <- is.na(disease_df)
+summary(missing_values)
+```
+```{r}
+# Identify duplicate rows
+duplicates <- duplicated(disease_df)
+
+#Remove Duplicated Rows
+disease_df <- disease_df[!duplicates,]
+```
+
+```{r}
+# Use one hot encoding
+library(caret)
+
+#Change the following to factors
+disease_df$Fever <- as.factor(disease_df$Fever)
+disease_df$Cough <- as.factor(disease_df$Cough)
+disease_df$Fatigue <- as.factor(disease_df$Fatigue)
+disease_df$Difficulty.Breathing <- as.factor(disease_df$Difficulty.Breathing)
+disease_df$Gender <- as.factor(disease_df$Gender)
+
+#One Hot encoding for Blood Pressure and Cholesterol Level
+dummy_vars <- dummyVars(~ Blood.Pressure + Cholesterol.Level, data = disease_df)
+one_hot_data <- predict(dummy_vars, newdata = disease_df)
+one_hot_data <- as.data.frame(one_hot_data)
+
+disease_df <- cbind(disease_df, one_hot_data)
+
+#Remove original data
+disease_df$Blood.Pressure <- NULL
+disease_df$Cholesterol.Level <- NULL
+
+```
+
+```{r}
+# Create a multi-class target column
+disease_df$Target <- ifelse(disease_df$Outcome.Variable == "Positive", disease_df$Disease, "Negative")
+disease_df$Target <- as.factor(disease_df$Target)
+```
+
+
