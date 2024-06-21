@@ -9,10 +9,19 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(caret)
 ```
 
 ```{r}
-disease_df <- read.csv("Disease_dataset.csv")
+file_path <- "C:/Users/tysir/Disease_symptom_and_patient_profile_dataset.csv"
+disease_df <- read.csv(file_path)
+
+# Check the structure of the dataset
+str(disease_df)
+
+# Print the column names
+print(colnames(disease_df))
 ```
 
 
@@ -29,34 +38,228 @@ duplicates <- duplicated(disease_df)
 disease_df <- disease_df[!duplicates,]
 ```
 
-```{r}
-# Use one hot encoding
-library(caret)
 
-#Change the following to factors
+```{r}
+# EDA Visualizations
+
+# Distribution of Age
+ggplot(disease_df, aes(x = Age)) + 
+  geom_histogram(binwidth = 5) + 
+  ggtitle("Age Distribution") +
+  xlab("Age") +
+  ylab("Frequency") +
+  scale_x_continuous(breaks = seq(0, 80, by = 10))
+```
+
+
+```{r}
+# Calculate the top 5 most frequent diseases
+top_n <- 5
+top_diseases <- disease_df %>% 
+  count(Disease, sort = TRUE) %>% 
+  top_n(n = top_n, wt = n)
+
+# Create a bar plot with the top 5 most frequent diseases
+ggplot(top_diseases, aes(x = reorder(Disease, n), y = n)) + 
+  geom_bar(stat = "identity") + 
+  geom_text(aes(label = n), vjust = -0.3) +  # Add counts as labels
+  ggtitle(paste("Top", top_n, "Most Frequent Diseases")) +
+  xlab("Disease") +
+  ylab("Count") +
+  coord_flip() +
+  theme(axis.text.y = element_text(size = 10))
+```
+
+
+```{r}
+# Swarm Plot of Age by Outcome Variable
+ggplot(disease_df, aes(x = Outcome.Variable, y = Age)) + 
+  geom_jitter(width = 0.2) + 
+  ggtitle("Swarm Plot of Age by Outcome Variable") + 
+  xlab("Outcome Variable") + 
+  ylab("Age")
+```
+
+
+```{r}
+# Stacked bar chart of Gender and Fever by Outcome Variable
+ggplot(disease_df, aes(x = Outcome.Variable, fill = interaction(Gender, Fever))) + 
+  geom_bar(position = "fill") + 
+  ggtitle("Stacked Bar Chart of Gender and Fever by Outcome Variable") +
+  xlab("Outcome Variable") +
+  ylab("Proportion") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_brewer(palette = "Set3", name = "Gender and Fever")
+```
+
+
+
+
+```{r}
+# Define the disease categories
+infectious_diseases <- c("Common Cold", "Influenza", "Chickenpox", "Measles", "HIV/AIDS", "Hepatitis B", "Tuberculosis", "Malaria", "Ebola Virus", "Zika Virus")
+chronic_diseases <- c("Diabetes", "Hypertension", "Asthma", "Chronic Obstructive Pulmonary Disease (COPD)", "Chronic Kidney Disease", "Coronary Artery Disease")
+genetic_disorders <- c("Down Syndrome", "Cystic Fibrosis", "Hemophilia", "Sickle Cell Anemia", "Klinefelter Syndrome", "Turner Syndrome", "Williams Syndrome")
+cancers <- c("Breast Cancer", "Prostate Cancer", "Lung Cancer", "Colorectal Cancer", "Pancreatic Cancer", "Liver Cancer", "Kidney Cancer")
+```
+
+
+```{r}
+# Create a new column with the broader categories
+disease_df <- disease_df %>%
+  mutate(Category = case_when(
+    Disease %in% infectious_diseases ~ "Infectious Diseases",
+    Disease %in% chronic_diseases ~ "Chronic Diseases",
+    Disease %in% genetic_disorders ~ "Genetic Disorders",
+    Disease %in% cancers ~ "Cancers",
+    TRUE ~ "Others"
+  ))
+
+# Print the first few rows to check the result
+head(disease_df)
+```
+
+
+```{r}
+# Convert necessary columns to factors
 disease_df$Fever <- as.factor(disease_df$Fever)
 disease_df$Cough <- as.factor(disease_df$Cough)
 disease_df$Fatigue <- as.factor(disease_df$Fatigue)
 disease_df$Difficulty.Breathing <- as.factor(disease_df$Difficulty.Breathing)
 disease_df$Gender <- as.factor(disease_df$Gender)
+disease_df$Blood.Pressure <- as.factor(disease_df$Blood.Pressure)
+disease_df$Cholesterol.Level <- as.factor(disease_df$Cholesterol.Level)
+disease_df$Outcome.Variable <- as.factor(disease_df$Outcome.Variable)
+disease_df$Category <- as.factor(disease_df$Category)
 
-#One Hot encoding for Blood Pressure and Cholesterol Level
-dummy_vars <- dummyVars(~ Blood.Pressure + Cholesterol.Level, data = disease_df)
-one_hot_data <- predict(dummy_vars, newdata = disease_df)
-one_hot_data <- as.data.frame(one_hot_data)
+# Remove the original 'Disease' column as it is now encoded in 'Category'
+disease_df <- disease_df %>% select(-Disease)
+```
 
-disease_df <- cbind(disease_df, one_hot_data)
 
-#Remove original data
-disease_df$Blood.Pressure <- NULL
-disease_df$Cholesterol.Level <- NULL
+```{r}
+# Remove constant variables
+constant_vars <- sapply(disease_df, function(x) length(unique(x)) == 1)
+constant_vars <- names(disease_df)[constant_vars]
+disease_df <- disease_df[, !names(disease_df) %in% constant_vars]
+```
+
+
+```{r}
+# Set seed for reproducibility
+set.seed(123)
+```
+
+
+```{r}
+# Create a training and testing split with stratified sampling
+trainIndex <- createDataPartition(disease_df$Category, p = 0.8, list = FALSE, times = 1)
+dataTrain <- disease_df[trainIndex, ]
+dataTest <- disease_df[-trainIndex, ]
+```
+
+```{r}
+# Ensure consistent levels
+dataTrain$Category <- factor(dataTrain$Category)
+dataTest$Category <- factor(dataTest$Category, levels = levels(dataTrain$Category))
+```
+
+
+```{r}
+# Define trainControl
+train_control <- trainControl(method = "cv", number = 10)
+```
+
+
+```{r}
+# Train a Gradient Boosting Machine model
+gbm_model <- train(Category ~ ., data = dataTrain, method = "gbm", verbose = FALSE, trControl = trainControl(method = "cv", number = 10))
+```
+
+
+```{r}
+# Predict on test set
+gbm_predictions <- predict(gbm_model, newdata = dataTest)
+```
+
+
+```{r}
+confusion_matrix <- confusionMatrix(gbm_predictions, dataTest$Category)
+print(confusion_matrix)
+```
+
+
+```{r}
+# Train a Support Vector Machine model
+svm_model <- train(Category ~ ., data = dataTrain, method = "svmRadial", trControl = trainControl(method = "cv", number = 10))
+```
+
+
+```{r}
+# Predict on test set using SVM model
+svm_predictions <- predict(svm_model, newdata = dataTest)
+```
+
+```{r}
+# Evaluate the SVM model
+svm_confusion_matrix <- confusionMatrix(svm_predictions, dataTest$Category)
+print(svm_confusion_matrix)
+```
+
+```{r}
 
 ```
 
 ```{r}
-# Create a multi-class target column
-disease_df$Target <- ifelse(disease_df$Outcome.Variable == "Positive", disease_df$Disease, "Negative")
-disease_df$Target <- as.factor(disease_df$Target)
+
 ```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
